@@ -77,15 +77,35 @@ export async function GET(request: Request) {
     if (!type || !osmId) return NextResponse.json({ error: "Invalid ID format" }, { status: 400 });
 
     const query = `[out:json]; ${type}(${osmId}); out body;`;
-    const res   = await fetch("https://overpass-api.de/api/interpreter", {
+    const res = await fetch("https://overpass-api.de/api/interpreter", {
       method: "POST",
       body: `data=${encodeURIComponent(query)}`,
       headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "XovixBusinessFinder/1.0" },
     });
 
-    const data = await res.json();
-    const el   = data.elements?.[0];
-    if (!el) return NextResponse.json({ error: "Business not found" }, { status: 404 });
+    if (!res.ok) {
+      const errorText = await res.text();
+      throw new Error(`Overpass API Error: ${res.status} ${res.statusText}. ${errorText.slice(0, 100)}`);
+    }
+
+    let data;
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("json")) {
+      data = await res.json();
+    } else {
+      const text = await res.text();
+      if (text.includes("<?xml") || text.includes("<html")) {
+        throw new Error("Overpass API returned an unexpected XML/HTML response. This usually happens on rate limits or server errors.");
+      }
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error("Overpass API returned an invalid data format.");
+      }
+    }
+
+    const el = data.elements?.[0];
+    if (!el) return NextResponse.json({ error: "Business not found in OpenStreetMap" }, { status: 404 });
 
     const tags = el.tags || {};
     const url  = tags.website || tags["contact:website"] || null;

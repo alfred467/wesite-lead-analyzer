@@ -195,7 +195,26 @@ export async function GET(request: Request) {
       method: "POST", body: `data=${encodeURIComponent(overpassQuery)}`,
       headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "XovixBusinessFinder/1.0" }
     });
-    const elements = (await overpassRes.json()).elements || [];
+
+    if (!overpassRes.ok) {
+      const errorText = await overpassRes.text();
+      throw new Error(`Overpass API Error: ${overpassRes.status}. ${errorText.slice(0, 100)}`);
+    }
+
+    let data;
+    const contentType = overpassRes.headers.get("content-type") || "";
+    if (contentType.includes("json")) {
+      data = await overpassRes.json();
+    } else {
+      const text = await overpassRes.text();
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error("Overpass API returned invalid data format (XML/HTML). The server might be busy.");
+      }
+    }
+
+    const elements = data.elements || [];
 
     // Deduplicate
     const seen = new Set();
