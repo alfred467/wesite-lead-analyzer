@@ -15,7 +15,7 @@ interface DigitalMarkers {
 // ---------------------------------------------------------------------------
 // Real-time deep-ping for 6 Core Markers
 // ---------------------------------------------------------------------------
-async function deepPing(url: string | null, tags: any): Promise<{ status: "none" | "working" | "broken"; markers: DigitalMarkers }> {
+async function deepPing(url: string | null, tags: Record<string, string | undefined>): Promise<{ status: "none" | "working" | "broken"; markers: DigitalMarkers }> {
   const markers: DigitalMarkers = {
     ssl: url?.startsWith("https://") || false,
     socials: !!(tags["contact:facebook"] || tags["contact:instagram"] || tags["contact:twitter"] || tags["contact:linkedin"]),
@@ -30,7 +30,8 @@ async function deepPing(url: string | null, tags: any): Promise<{ status: "none"
   try {
     const startTime = Date.now();
     const ctrl = new AbortController();
-    const timeout = setTimeout(() => ctrl.abort(), 7000);
+    const timeoutMs = parseInt(process.env.WEBSITE_ANALYZER_TIMEOUT || "5000", 10);
+    const timeout = setTimeout(() => ctrl.abort(), timeoutMs);
     
     const res = await fetch(url, {
       method: "GET",
@@ -55,7 +56,7 @@ async function deepPing(url: string | null, tags: any): Promise<{ status: "none"
     else markers.speed = "slow";
 
     return { status: res.ok ? "working" : "broken", markers };
-  } catch (err) {
+  } catch {
     return { status: "broken", markers };
   }
 }
@@ -69,6 +70,29 @@ export async function GET(request: Request) {
 
   if (!rawId) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
+  const fetchWithRetry = async (url: string, options: RequestInit, retries = 2): Promise<Response> => {
+    for (let i = 0; i <= retries; i++) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout for Overpass
+        const res = await fetch(url, { ...options, signal: controller.signal });
+        clearTimeout(timeout);
+        if (res.ok) return res;
+        if (res.status === 429 || res.status >= 500) {
+           if (i < retries) {
+             await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+             continue;
+           }
+        }
+        return res;
+      } catch (err) {
+        if (i === retries) throw err;
+        await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+      }
+    }
+    throw new Error("Maximum retries reached");
+  };
+
   try {
     const parts = rawId.replace("osm_", "").split("_");
     const type  = parts[0];
@@ -76,8 +100,8 @@ export async function GET(request: Request) {
 
     if (!type || !osmId) return NextResponse.json({ error: "Invalid ID format" }, { status: 400 });
 
-    const query = `[out:json]; ${type}(${osmId}); out body;`;
-    const res = await fetch("https://overpass-api.de/api/interpreter", {
+    const query = `[out:json][timeout:15]; ${type}(${osmId}); out body;`;
+    const res = await fetchWithRetry("https://overpass-api.de/api/interpreter", {
       method: "POST",
       body: `data=${encodeURIComponent(query)}`,
       headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "XovixBusinessFinder/1.0" },
@@ -85,7 +109,10 @@ export async function GET(request: Request) {
 
     if (!res.ok) {
       const errorText = await res.text();
-      throw new Error(`Overpass API Error: ${res.status} ${res.statusText}. ${errorText.slice(0, 100)}`);
+      if (res.status === 504 || res.status === 503) {
+        throw new Error("Overpass API is currently busy or timed out. Please retry.");
+      }
+      throw new Error(`Overpass API Error: ${res.status} ${res.statusText}. ${errorText.slice(0, 50)}`);
     }
 
     let data;
@@ -94,13 +121,13 @@ export async function GET(request: Request) {
       data = await res.json();
     } else {
       const text = await res.text();
-      if (text.includes("<?xml") || text.includes("<html")) {
-        throw new Error("Overpass API returned an unexpected XML/HTML response. This usually happens on rate limits or server errors.");
+      if (text.includes("<?xml") || text.includes("<html") || text.includes("<body")) {
+        throw new Error("Overpass API returned an unexpected response (Server Busy). Please retry.");
       }
       try {
         data = JSON.parse(text);
       } catch {
-        throw new Error("Overpass API returned an invalid data format.");
+        throw new Error("Overpass API returned invalid data format. Please retry.");
       }
     }
 
@@ -133,7 +160,7 @@ export async function GET(request: Request) {
       markers: markers,
       tags: tags
     });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err: unknown) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Unknown error" }, { status: 500 });
   }
 }

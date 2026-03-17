@@ -2,14 +2,32 @@
 
 import { useState, useCallback, useMemo } from "react";
 import {
-  Search, MapPin, Building2, TrendingUp, CheckCircle2,
-  AlertTriangle, XCircle, ArrowRight, ShieldCheck, Zap,
-  Rocket, Sparkles, ChevronLeft, ChevronRight, List,
+  Search, MapPin, Building2, TrendingUp,
+  AlertTriangle, ArrowRight, 
+  Sparkles, ChevronLeft, ChevronRight, List,
   Filter, Smartphone, Share2, Mail, Gauge, ShieldAlert, Phone
 } from "lucide-react";
 import BusinessCard from "@/components/BusinessCard";
 import { useAuth } from "@/context/AuthContext";
 import Link from "next/link";
+
+interface Business {
+  id: string;
+  name: string;
+  industry: string;
+  location: string;
+  website_status: "none" | "working" | "broken";
+  lead_score: number;
+  lead_tag: "hot" | "warm" | "cold";
+  markers?: {
+    ssl: boolean;
+    socials: boolean;
+    phone: boolean;
+    email: boolean;
+    mobile: boolean;
+    speed: "fast" | "medium" | "slow" | "fail";
+  };
+}
 
 interface SearchMeta {
   total:      number;
@@ -26,7 +44,7 @@ export default function Home() {
   const [query,       setQuery]       = useState("");
   const [location,    setLocation]    = useState("Nairobi");
   const [isLoading,   setIsLoading]   = useState(false);
-  const [results,     setResults]     = useState<any[]>([]);
+  const [results,     setResults]     = useState<Business[]>([]);
   const [meta,        setMeta]        = useState<SearchMeta | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [error,       setError]       = useState("");
@@ -67,8 +85,8 @@ export default function Home() {
         location:   data.location,
       });
       window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch (err: any) {
-      setError(err.message || "Search failed");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Search failed");
       setResults([]);
       setMeta(null);
     } finally {
@@ -316,7 +334,7 @@ export default function Home() {
             {/* Business Cards Grid */}
             {displayed.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {displayed.map((b, i) => (
+                {displayed.map((b) => (
                   <BusinessCard key={b.id} business={b} />
                 ))}
               </div>
@@ -345,9 +363,9 @@ export default function Home() {
                     <ChevronLeft className="w-5 h-5" />
                   </button>
                   <div className="flex items-center gap-1">
-                    {Array.from({ length: Math.min(meta.totalPages, 5) }).map((_, i) => {
-                      let p = i + 1;
-                      if (meta.page > 3) p = meta.page - 2 + i;
+                    {Array.from({ length: Math.min(meta.totalPages, 5) }).map((_, idx) => {
+                      let p = idx + 1;
+                      if (meta.page > 3) p = meta.page - 2 + idx;
                       if (p > meta.totalPages) return null;
                       return (
                         <button
@@ -380,7 +398,7 @@ export default function Home() {
   );
 }
 
-function AdvFilterButton({ active, label, icon, onClick }: { active: boolean, label: string, icon: any, onClick: () => void }) {
+function AdvFilterButton({ active, label, icon, onClick }: { active: boolean, label: string, icon: React.ReactNode, onClick: () => void }) {
   return (
     <button
       onClick={onClick}

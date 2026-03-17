@@ -2,10 +2,9 @@
 
 import Link from "next/link";
 import {
-  Globe, Phone, MapPin, Building2,
-  ShieldCheck, ShieldAlert, Zap, Flame, Snowflake,
-  ArrowRight, Smartphone, Mail, Share2, Gauge,
-  CheckCircle2, AlertCircle, XCircle
+  Phone, MapPin, Building2,
+  ShieldCheck, Zap, Flame, Snowflake,
+  ArrowRight, Smartphone, Mail, Share2, Gauge
 } from "lucide-react";
 
 interface BusinessCardProps {
@@ -133,7 +132,14 @@ export default function BusinessCard({ business }: BusinessCardProps) {
   );
 }
 
-function MarkerIcon({ icon, label, active, missing, warning, fail }: any) {
+function MarkerIcon({ icon, label, active, missing, warning, fail }: { 
+  icon: React.ReactNode; 
+  label: string; 
+  active?: boolean; 
+  missing?: boolean; 
+  warning?: boolean; 
+  fail?: boolean;
+}) {
   let statusColor = "text-gray-300 bg-gray-50 border-gray-100";
   if (active) statusColor = "text-primary bg-primary/5 border-primary/20";
   if (missing || fail) statusColor = "text-red-500 bg-red-50 border-red-100";

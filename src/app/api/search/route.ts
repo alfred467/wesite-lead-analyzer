@@ -95,7 +95,7 @@ interface DigitalMarkers {
 // ---------------------------------------------------------------------------
 // Real-time deep-ping for 6 Core Markers
 // ---------------------------------------------------------------------------
-async function deepPing(url: string | null, tags: any): Promise<{ status: "none" | "working" | "broken"; markers: DigitalMarkers }> {
+async function deepPing(url: string | null, tags: Record<string, string | undefined>): Promise<{ status: "none" | "working" | "broken"; markers: DigitalMarkers }> {
   // Base markers from OSM tags
   const markers: DigitalMarkers = {
     ssl: url?.startsWith("https://") || false,
@@ -111,7 +111,8 @@ async function deepPing(url: string | null, tags: any): Promise<{ status: "none"
   try {
     const startTime = Date.now();
     const ctrl = new AbortController();
-    const timeout = setTimeout(() => ctrl.abort(), 6000);
+    const timeoutMs = parseInt(process.env.WEBSITE_ANALYZER_TIMEOUT || "5000", 10);
+    const timeout = setTimeout(() => ctrl.abort(), timeoutMs);
     
     // Fetch with follow redirects
     const res = await fetch(url, {
@@ -145,7 +146,7 @@ async function deepPing(url: string | null, tags: any): Promise<{ status: "none"
     else markers.speed = "slow";
 
     return { status: res.ok ? "working" : "broken", markers };
-  } catch (err) {
+  } catch {
     return { status: "broken", markers };
   }
 }
@@ -179,6 +180,29 @@ export async function GET(request: Request) {
   const page     = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
   const limit    = 100;
 
+  const fetchWithRetry = async (url: string, options: RequestInit, retries = 2): Promise<Response> => {
+    for (let i = 0; i <= retries; i++) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 12000); // 12s timeout for Overpass
+        const res = await fetch(url, { ...options, signal: controller.signal });
+        clearTimeout(timeout);
+        if (res.ok) return res;
+        if (res.status === 429 || res.status >= 500) {
+           if (i < retries) {
+             await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+             continue;
+           }
+        }
+        return res;
+      } catch (err) {
+        if (i === retries) throw err;
+        await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+      }
+    }
+    throw new Error("Maximum retries reached");
+  };
+
   try {
     const geo = await geocodeCity(location);
     if (!geo) return NextResponse.json({ error: `Could not geocode city: ${location}` }, { status: 400 });
@@ -189,9 +213,9 @@ export async function GET(request: Request) {
     const osmTags = getOsmTags(query);
     const nodes = osmTags.map(t => `node[${t}][name](${bbox});`).join("\n  ");
     const ways  = osmTags.map(t => `way[${t}][name](${bbox});`).join("\n  ");
-    const overpassQuery = `[out:json][timeout:60];\n(\n  ${nodes}\n  ${ways}\n);\nout body;`;
+    const overpassQuery = `[out:json][timeout:25];\n(\n  ${nodes}\n  ${ways}\n);\nout body;`;
 
-    const overpassRes = await fetch("https://overpass-api.de/api/interpreter", {
+    const overpassRes = await fetchWithRetry("https://overpass-api.de/api/interpreter", {
       method: "POST", body: `data=${encodeURIComponent(overpassQuery)}`,
       headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "XovixBusinessFinder/1.0" }
     });
@@ -218,7 +242,7 @@ export async function GET(request: Request) {
 
     // Deduplicate
     const seen = new Set();
-    const unique = elements.filter((el: any) => {
+    const unique = elements.filter((el: { type: string; id: number; tags?: Record<string, string> }) => {
       const k = el.tags?.name?.toLowerCase().trim();
       if (!k || seen.has(k)) return false;
       seen.add(k);
@@ -235,7 +259,7 @@ export async function GET(request: Request) {
     
     for (let i = 0; i < slice.length; i += CONCURRENCY) {
       const batch = slice.slice(i, i + CONCURRENCY);
-      const batchResults = await Promise.all(batch.map(async (el: any) => {
+      const batchResults = await Promise.all(batch.map(async (el: { type: string; id: number; tags?: Record<string, string> }) => {
         const tags = el.tags || {};
         const url = tags.website || tags["contact:website"] || null;
         const { status, markers } = await deepPing(url, tags);
@@ -263,7 +287,7 @@ export async function GET(request: Request) {
     results.sort((a, b) => b.lead_score - a.lead_score);
 
     return NextResponse.json({ results, total, page, totalPages, perPage: limit, query, location });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err: unknown) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Unknown error" }, { status: 500 });
   }
 }

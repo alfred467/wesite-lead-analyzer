@@ -7,7 +7,8 @@ import { NextResponse } from "next/server";
 export async function checkWebsiteStatus(url: string): Promise<"working" | "broken"> {
   try {
     const controller = new AbortController();
-    const timeout    = setTimeout(() => controller.abort(), 6000);
+    const timeoutMs = parseInt(process.env.WEBSITE_ANALYZER_TIMEOUT || "5000", 10);
+    const timeout    = setTimeout(() => controller.abort(), timeoutMs);
     const res = await fetch(url, {
       method:  "GET",
       signal:  controller.signal,
@@ -35,7 +36,8 @@ export async function GET(request: Request) {
   try {
     const startTime  = Date.now();
     const controller = new AbortController();
-    const timeout    = setTimeout(() => controller.abort(), 7000);
+    const timeoutMs = parseInt(process.env.WEBSITE_ANALYZER_TIMEOUT || "5000", 10);
+    const timeout    = setTimeout(() => controller.abort(), timeoutMs);
 
     const response = await fetch(url, {
       signal:  controller.signal,
@@ -91,11 +93,11 @@ export async function GET(request: Request) {
         issues,
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     return NextResponse.json({
       url,
       status:   "broken",
-      error:    error.message,
+      error:    error instanceof Error ? error.message : "Unknown error",
       analysis: { qualityScore: 0, issues: ["Website failed to respond or timed out"] },
     });
   }

@@ -3,18 +3,40 @@
 import { useEffect, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
-  ArrowLeft, Globe, Phone, MapPin, Building2,
-  ShieldCheck, ShieldAlert, Zap, Flame, Snowflake,
+  ArrowLeft, Phone, 
+  ShieldCheck, Flame, Zap, Snowflake,
   Mail, MessageSquare, Copy, CheckCircle2, AlertCircle,
-  BarChart3, Rocket, Smartphone, RefreshCw, Send, History, 
-  Sparkles, MessageCircleMore, Tag, Share2, Gauge, Save, BookmarkCheck, Trash2
+  BarChart3, RefreshCw, Send, History, 
+  Sparkles, MessageCircleMore, Tag, Share2, Gauge, Save, BookmarkCheck, Globe, Smartphone, Rocket
 } from "lucide-react";
 import { generateOutreach, suggestReply, generateFollowUp, detectIntent } from "@/lib/messaging";
+
+interface Business {
+  id: string;
+  name: string;
+  industry: string;
+  location: string;
+  phone?: string | null;
+  website?: string | null;
+  email?: string | null;
+  website_status: "none" | "working" | "broken";
+  lead_score: number;
+  lead_tag: "hot" | "warm" | "cold";
+  markers?: {
+    ssl: boolean;
+    socials: boolean;
+    phone: boolean;
+    email: boolean;
+    mobile: boolean;
+    speed: "fast" | "medium" | "slow" | "fail";
+  };
+  tags?: Record<string, string>;
+}
 
 export default function BusinessDetail() {
   const { id } = useParams();
   const router  = useRouter();
-  const [business, setBusiness] = useState<any>(null);
+  const [business, setBusiness] = useState<Business | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [isSaved, setIsSaved] = useState(false);
@@ -34,7 +56,7 @@ export default function BusinessDetail() {
     
     // Check if already saved in localStorage
     const savedLeads = JSON.parse(localStorage.getItem("xovix_saved_leads") || "[]");
-    const existing = savedLeads.find((l: any) => l.id === id);
+    const existing = savedLeads.find((l: Business) => l.id === id);
     if (existing) {
       setIsSaved(true);
       setNotes(existing.notes || "");
@@ -71,19 +93,28 @@ export default function BusinessDetail() {
         setVariations(generateOutreach({
           businessName: businessData.name,
           industry:     businessData.industry,
-          location:     businessData.address,
+          location:     businessData.location,
           status:       businessData.website_status,
           qualityScore: score,
         }));
         setFollowUps(generateFollowUp(businessData.name));
-      } catch (err: any) {
-        setError(err.message || "Failed to load business data");
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Failed to load business data";
+        setError(msg);
       } finally {
         setIsLoading(false);
       }
     };
+
     fetchBusiness();
   }, [id]);
+
+  const handleRetry = () => {
+    // Re-trigger the useEffect by manually calling a refresh if needed or just re-mounting.
+    // However, simply calling fetchBusiness would be better if we move it out or use a refresh trigger.
+    // For now, let's just use window.location.reload() or a smarter state trigger.
+    window.location.reload();
+  };
 
   const handleSaveToggle = () => {
     if (!business) return;
@@ -91,7 +122,7 @@ export default function BusinessDetail() {
     
     if (isSaved) {
       // Remove
-      const filtered = savedLeads.filter((l: any) => l.id !== id);
+      const filtered = savedLeads.filter((l: Business) => l.id !== id);
       localStorage.setItem("xovix_saved_leads", JSON.stringify(filtered));
       setIsSaved(false);
     } else {
@@ -111,7 +142,7 @@ export default function BusinessDetail() {
     setNotes(val);
     if (isSaved) {
       const savedLeads = JSON.parse(localStorage.getItem("xovix_saved_leads") || "[]");
-      const updated = savedLeads.map((l: any) => l.id === id ? { ...l, notes: val } : l);
+      const updated = savedLeads.map((l: Business) => l.id === id ? { ...l, notes: val } : l);
       localStorage.setItem("xovix_saved_leads", JSON.stringify(updated));
     }
   };
@@ -155,18 +186,38 @@ export default function BusinessDetail() {
     </div>
   );
 
-  if (error || !business) return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-white px-4">
-      <AlertCircle className="w-14 h-14 text-red-200 mb-6" />
-      <h2 className="text-2xl font-black text-gray-900 mb-2">Lead Expired or Not Found</h2>
-      <p className="text-sm text-gray-400 mb-8 max-w-sm text-center">{error || "This lead could not be retrieved from the network."}</p>
-      <button onClick={() => router.back()} className="px-6 py-3 bg-gray-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest flex items-center gap-2">
-        <ArrowLeft className="w-4 h-4" /> Return to Search
-      </button>
-    </div>
-  );
+  if (error || !business) {
+    const isTimeout = error.toLowerCase().includes("timeout") || error.toLowerCase().includes("busy") || error.toLowerCase().includes("retry");
+    
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-white px-4">
+        <div className={`p-4 rounded-3xl mb-6 ${isTimeout ? "bg-amber-50" : "bg-red-50"}`}>
+          <AlertCircle className={`w-10 h-10 ${isTimeout ? "text-amber-500" : "text-red-500"}`} />
+        </div>
+        <h2 className="text-2xl font-black text-gray-900 mb-2">
+          {isTimeout ? "OpenStreetMap is Busy" : "Lead Not Found"}
+        </h2>
+        <p className="text-sm text-gray-500 mb-8 max-w-sm text-center leading-relaxed">
+          {isTimeout 
+            ? "The global business database is currently experiencing heavy load. Please try again in a few seconds."
+            : (error || "This lead could not be retrieved from the network. The link may have expired or OSM is temporarily unavailable.")
+          }
+        </p>
+        <div className="flex flex-col sm:flex-row items-center gap-3">
+          {isTimeout && (
+            <button onClick={handleRetry} className="px-8 py-3 bg-primary text-white rounded-2xl text-xs font-black uppercase tracking-widest flex items-center gap-2 shadow-xl shadow-primary/20 hover:scale-105 transition-all">
+              <RefreshCw className="w-4 h-4" /> Try Again Now
+            </button>
+          )}
+          <button onClick={() => router.back()} className="px-8 py-3 bg-gray-100 text-gray-900 rounded-2xl text-xs font-black uppercase tracking-widest flex items-center gap-2 hover:bg-gray-200 transition-all">
+            <ArrowLeft className="w-4 h-4" /> Return to Search
+          </button>
+        </div>
+      </div>
+    );
+  }
 
-  const tagStyles: Record<string, any> = {
+  const tagStyles: Record<string, { bg: string, text: string, border: string, icon: React.ReactNode, label: string }> = {
     hot:  { bg: "bg-red-50",    text: "text-red-700",    border: "border-red-200",    icon: <Flame className="w-4 h-4" />,     label: "Hot Prospect"  },
     warm: { bg: "bg-amber-50",  text: "text-amber-700",  border: "border-amber-200",  icon: <Zap   className="w-4 h-4" />,     label: "Warm Lead" },
     cold: { bg: "bg-blue-50",   text: "text-blue-700",   border: "border-blue-200",   icon: <Snowflake className="w-4 h-4" />, label: "Cold" },
@@ -312,7 +363,7 @@ export default function BusinessDetail() {
                   <Tag className="w-4 h-4 text-gray-300 group-open:rotate-180 transition-all" />
                 </summary>
                 <div className="p-6 grid grid-cols-2 md:grid-cols-3 gap-3 bg-white border border-t-0 border-gray-100 rounded-b-2xl">
-                   {Object.entries(business.tags).map(([k, v]: any) => (
+                   {business.tags && Object.entries(business.tags).map(([k, v]: [string, string]) => (
                     <div key={k} className="p-3 bg-gray-50 rounded-xl border border-gray-100 overflow-hidden">
                       <p className="text-[9px] font-bold text-gray-400 uppercase truncate">{k}</p>
                       <p className="text-xs font-semibold text-gray-700 truncate">{v}</p>
@@ -343,7 +394,7 @@ export default function BusinessDetail() {
                 ].map(tab => (
                   <button
                     key={tab.id}
-                    onClick={() => setActiveTab(tab.id as any)}
+                    onClick={() => setActiveTab(tab.id as "outreach" | "reply" | "followup")}
                     className={`flex-1 py-4 flex flex-col items-center justify-center gap-2 text-[9px] font-black uppercase tracking-widest transition-all rounded-t-3xl ${
                       activeTab === tab.id
                         ? "bg-white text-gray-900"
@@ -376,7 +427,7 @@ export default function BusinessDetail() {
                       ))}
                     </div>
                     <div className="bg-gray-50 border border-gray-100 rounded-[2rem] p-6 text-sm text-gray-700 leading-relaxed min-h-[160px] italic">
-                      "{variations[selectedVarIdx] || "Calibrating engine..."}"
+                      &quot;{variations[selectedVarIdx] || "Calibrating engine..."}&quot;
                     </div>
                   </div>
                 )}
@@ -412,7 +463,7 @@ export default function BusinessDetail() {
                       <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Sequence Builders</p>
                       {followUps.map((msg, i) => (
                         <div key={i} className="group relative p-6 bg-gray-50 border border-gray-100 rounded-[2rem]">
-                          <p className="text-sm text-gray-600 pr-6 leading-relaxed italic">"{msg}"</p>
+                          <p className="text-sm text-gray-600 pr-6 leading-relaxed italic">&quot;{msg}&quot;</p>
                           <button onClick={() => handleCopy(msg)} className="absolute top-4 right-4 text-gray-300 hover:text-primary transition-all">
                             <Copy className="w-4 h-4" />
                           </button>
@@ -444,7 +495,7 @@ export default function BusinessDetail() {
                  <Rocket className="w-3.5 h-3.5" /> Growth Strategy
                </h4>
                <p className="text-xs text-gray-600 leading-relaxed font-medium">
-                  Focused on <span className="font-bold text-gray-900">{business.name}</span>'s digital deficit. 
+                  Focused on <span className="font-bold text-gray-900">{business.name}</span>&apos;s digital deficit. 
                   {business.website_status === "none" 
                     ? " Absence of digital footprint makes them a prime candidate for a starter web presence package."
                     : " Site detected but with critical infrastructure failure (SSL/Mobile). Pitch and fix the funnel first."}
@@ -457,18 +508,27 @@ export default function BusinessDetail() {
   );
 }
 
-function ContactInfoCard({ label, value, link, icon, status }: any) {
-  const statusColors = {
+interface ContactInfoCardProps {
+  label: string;
+  value: string;
+  link?: string | null;
+  icon: React.ReactNode;
+  status: string;
+}
+
+function ContactInfoCard({ label, value, link, icon, status }: ContactInfoCardProps) {
+  const statusColors: Record<string, string> = {
     active: "bg-green-50 text-green-700 border-green-100",
     fail:   "bg-red-50 text-red-600 border-red-100",
     none:   "bg-gray-50 text-gray-400 border-gray-100",
-  }[status as keyof typeof statusColors];
+  };
+  const colorClasses = statusColors[status as keyof typeof statusColors] || statusColors.none;
 
   return (
     <div className={`p-5 rounded-3xl bg-white border border-gray-100 shadow-sm flex flex-col gap-4`}>
        <div className="flex items-center justify-between">
           <div className="p-2.5 bg-gray-50 rounded-xl border border-gray-100">{icon}</div>
-          <div className={`px-2 py-0.5 rounded-full border text-[7px] font-black uppercase tracking-widest ${statusColors}`}>
+          <div className={`px-2 py-0.5 rounded-full border text-[7px] font-black uppercase tracking-widest ${colorClasses}`}>
             {status}
           </div>
        </div>
@@ -486,7 +546,16 @@ function ContactInfoCard({ label, value, link, icon, status }: any) {
   );
 }
 
-function MarkerDetail({ label, active, icon, desc, warning, fail }: any) {
+interface MarkerDetailProps {
+  label: string;
+  active?: boolean;
+  icon: React.ReactNode;
+  desc: string;
+  warning?: boolean;
+  fail?: boolean;
+}
+
+function MarkerDetail({ label, active, icon, desc, warning, fail }: MarkerDetailProps) {
   const color = active ? "text-primary border-primary/20 bg-primary/5" : (fail ? "text-red-600 border-red-200 bg-red-50" : (warning ? "text-amber-600 border-amber-200 bg-amber-50" : "text-gray-300 border-gray-100 bg-gray-50"));
   
   return (

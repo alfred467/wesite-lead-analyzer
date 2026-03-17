@@ -3,9 +3,9 @@
 import { useState, useEffect } from "react";
 import {
   BarChart3, Users, Globe, MessageSquare,
-  TrendingUp, Download, CheckCircle2, AlertTriangle,
-  Building2, Trash2, ShieldCheck, Smartphone, Share2, 
-  Mail, Gauge, ExternalLink, Calendar, Search, Filter, X,
+  TrendingUp, Download,
+  Building2, Trash2, 
+  ExternalLink, Calendar, Search,
   MapPin, ArrowRight, ShieldAlert
 } from "lucide-react";
 import Link from "next/link";
@@ -13,13 +13,16 @@ import { getSavedLeads, updateLead, removeLead, SavedLead } from "@/lib/storage"
 
 export default function Dashboard() {
   const [leads, setLeads] = useState<SavedLead[]>([]);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLeads(getSavedLeads());
+    setIsMounted(true);
+  }, []);
   const [isExporting, setIsExporting] = useState(false);
   const [filter, setFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
-
-  useEffect(() => {
-    setLeads(getSavedLeads());
-  }, []);
 
   const stats = [
     { label: "Total Saved", value: leads.length, icon: <Users className="w-5 h-5" />, color: "bg-blue-50 text-blue-600" },
@@ -64,6 +67,8 @@ export default function Dashboard() {
       setIsExporting(false);
     }, 1000);
   };
+
+  if (!isMounted) return <div className="min-h-screen bg-white" />;
 
   return (
     <div className="bg-white min-h-screen pb-20">

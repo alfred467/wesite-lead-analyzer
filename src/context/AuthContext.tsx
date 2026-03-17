@@ -19,10 +19,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   useEffect(() => {
-    const savedUser = localStorage.getItem("xovix_user");
-    if (savedUser) {
-      setUser(savedUser);
-    }
+    const saved = localStorage.getItem("xovix_user");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (saved) setUser(saved);
     setIsLoading(false);
   }, []);
 
